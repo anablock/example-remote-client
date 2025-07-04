@@ -1,0 +1,39 @@
+{
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "functions": {
+    "app/api/**/*.ts": {
+      "runtime": "@vercel/node",
+      "maxDuration": 30
+    }
+  },
+  "env": {
+    "OPENROUTER_API_KEY": "@openrouter-api-key",
+    "OPENROUTER_CLIENT_ID": "@openrouter-client-id",
+    "OPENROUTER_CLIENT_SECRET": "@openrouter-client-secret",
+    "NEXT_PUBLIC_APP_URL": "@next-public-app-url"
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "X-Requested-With, Content-Type, Authorization"
+        }
+      ]
+    }
+  ]
+}
