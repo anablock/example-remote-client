@@ -1,21 +1,10 @@
 {
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/next"
-    }
-  ],
+  "framework": "nextjs",
   "functions": {
     "app/api/**/*.ts": {
       "runtime": "@vercel/node",
       "maxDuration": 30
     }
-  },
-  "env": {
-    "OPENROUTER_API_KEY": "@openrouter-api-key",
-    "OPENROUTER_CLIENT_ID": "@openrouter-client-id",
-    "OPENROUTER_CLIENT_SECRET": "@openrouter-client-secret",
-    "NEXT_PUBLIC_APP_URL": "@next-public-app-url"
   },
   "headers": [
     {
@@ -35,5 +24,7 @@
         }
       ]
     }
-  ]
+  ],
+  "cleanUrls": true,
+  "trailingSlash": false
 }
