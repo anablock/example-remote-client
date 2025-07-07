@@ -96,6 +96,9 @@ export class OpenRouterClient {
     model: string,
     authToken: string
   ): Promise<InferenceResponse> {
+    // Validate request before sending
+    this.validateRequest(request);
+
     const openRouterRequest: OpenRouterChatRequest = {
       model,
       messages: request.messages.map(this.formatMessage),
@@ -110,16 +113,28 @@ export class OpenRouterClient {
       openRouterRequest.tool_choice = 'auto';
     }
 
-    const response = await this.makeRequest<OpenRouterChatResponse>(
-      '/chat/completions',
-      {
-        method: 'POST',
-        body: JSON.stringify(openRouterRequest),
-      },
-      authToken
-    );
+    // Clean up undefined values that might cause 400 errors
+    this.cleanRequest(openRouterRequest);
 
-    return this.parseResponse(response);
+    // Log the request for debugging (remove in production)
+    console.log('OpenRouter Request:', JSON.stringify(openRouterRequest, null, 2));
+
+    try {
+      const response = await this.makeRequest<OpenRouterChatResponse>(
+        '/chat/completions',
+        {
+          method: 'POST',
+          body: JSON.stringify(openRouterRequest),
+        },
+        authToken
+      );
+
+      return this.parseResponse(response);
+    } catch (error) {
+      console.error('OpenRouter API Error:', error);
+      console.error('Request that failed:', JSON.stringify(openRouterRequest, null, 2));
+      throw error;
+    }
   }
 
   private parseModel(openRouterModel: OpenRouterModel): Model {
@@ -149,40 +164,61 @@ export class OpenRouterClient {
 
     // Handle content
     if (typeof message.content === 'string') {
-      openRouterMessage.content = message.content;
-    } else {
+      openRouterMessage.content = message.content || ' '; // Ensure non-empty
+    } else if (Array.isArray(message.content)) {
       // Handle content blocks
-      openRouterMessage.content = message.content.map(block => {
+      const contentBlocks = message.content.map(block => {
         if (block.type === 'text') {
           return {
-            type: 'text',
-            text: block.text || '',
+            type: 'text' as const,
+            text: block.text || ' ',
           };
-        } else {
+        } else if (block.type === 'image') {
           return {
-            type: 'image_url',
+            type: 'image_url' as const,
             image_url: {
               url: block.imageUrl || '',
             },
           };
+        } else {
+          // Fallback for unknown block types
+          return {
+            type: 'text' as const,
+            text: ' ',
+          };
         }
       });
+      
+      // If we have content blocks, use them; otherwise provide default text content
+      if (contentBlocks.length > 0) {
+        openRouterMessage.content = contentBlocks;
+      } else {
+        openRouterMessage.content = ' ';
+      }
+    } else {
+      // Fallback for any other content type
+      openRouterMessage.content = ' ';
     }
 
-    // Handle tool calls
-    if (message.toolCalls) {
+    // Handle tool calls (only for assistant messages)
+    if (message.toolCalls && message.role === 'assistant') {
       openRouterMessage.tool_calls = message.toolCalls.map(toolCall => ({
         id: toolCall.id,
-        type: 'function',
+        type: 'function' as const,
         function: {
           name: toolCall.function.name,
           arguments: JSON.stringify(toolCall.function.arguments),
         },
       }));
+      
+      // For messages with tool calls, content can be null
+      if (typeof openRouterMessage.content === 'string' && openRouterMessage.content.trim() === '') {
+        (openRouterMessage as any).content = null;
+      }
     }
 
     // Handle tool call ID for tool response messages
-    if (message.toolCallId) {
+    if (message.toolCallId && message.role === 'tool') {
       openRouterMessage.tool_call_id = message.toolCallId;
     }
 
@@ -252,6 +288,81 @@ export class OpenRouterClient {
         arguments: parsedArguments,
       },
     };
+  }
+
+  private validateRequest(request: InferenceRequest): void {
+    if (!request.messages || request.messages.length === 0) {
+      throw new Error('Request must contain at least one message');
+    }
+
+    // Validate message structure
+    for (const message of request.messages) {
+      if (!message.role || !['user', 'assistant', 'system', 'tool'].includes(message.role)) {
+        throw new Error(`Invalid message role: ${message.role}`);
+      }
+
+      if (!message.content && !message.toolCalls) {
+        throw new Error('Message must have content or tool calls');
+      }
+    }
+
+    // Validate tools if provided
+    if (request.tools) {
+      for (const tool of request.tools) {
+        if (tool.type !== 'function') {
+          throw new Error(`Unsupported tool type: ${tool.type}`);
+        }
+        if (!tool.function?.name) {
+          throw new Error('Tool function must have a name');
+        }
+      }
+    }
+  }
+
+  private cleanRequest(request: OpenRouterChatRequest): void {
+    // Remove undefined values that might cause API errors
+    if (request.max_tokens === undefined) {
+      delete request.max_tokens;
+    }
+    if (request.temperature === undefined) {
+      delete request.temperature;
+    }
+    if (request.stop === undefined) {
+      delete request.stop;
+    }
+
+    // Clean messages
+    for (const message of request.messages) {
+      if (message.tool_calls === undefined) {
+        delete message.tool_calls;
+      }
+      if (message.tool_call_id === undefined) {
+        delete message.tool_call_id;
+      }
+
+      // Handle content validation
+      if (message.content === '' || message.content === undefined) {
+        if (message.tool_calls && message.tool_calls.length > 0) {
+          // Assistant messages with tool calls can have null content
+          (message as any).content = null;
+        } else {
+          // Other messages need non-empty content
+          message.content = ' ';
+        }
+      }
+    }
+
+    // Clean tools if present
+    if (request.tools) {
+      request.tools = request.tools.filter(tool => 
+        tool.function?.name && typeof tool.function.name === 'string'
+      );
+      
+      if (request.tools.length === 0) {
+        delete request.tools;
+        delete request.tool_choice;
+      }
+    }
   }
 
   private createInferenceError(status: number, errorData: OpenRouterErrorResponse): InferenceError {

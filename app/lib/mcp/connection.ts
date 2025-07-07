@@ -295,11 +295,20 @@ export class MCPConnectionManager {
         try {
           await this.tryStreamableHttp();
           this.connection.transport = 'streamable-http';
-        } catch (error) {
-          // TODO: jerome - if this is a TypeError: failed to fetch, then there is likely a CORS (or 
-          // Access-Control-Expose-Headers) issue with the server.
-          await this.trySSE();
-          this.connection.transport = 'sse';
+        } catch (streamableError) {
+          const streamableErrorMessage = this.analyzeMCPError(streamableError);
+          console.log('StreamableHTTP failed:', streamableErrorMessage);
+          
+          try {
+            await this.trySSE();
+            this.connection.transport = 'sse';
+          } catch (sseError) {
+            const sseErrorMessage = this.analyzeMCPError(sseError);
+            console.log('SSE failed:', sseErrorMessage);
+            
+            // Both transports failed, provide helpful error message
+            throw new Error(this.generateUserFriendlyError(streamableError, sseError));
+          }
         }
       }
 
@@ -624,5 +633,75 @@ export class MCPConnectionManager {
       connectionId: this.connection.id,
       retryable: type === 'connection' || type === 'transport',
     };
+  }
+
+  private analyzeMCPError(error: any): string {
+    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      return 'Network error (likely CORS or server unavailable)';
+    }
+    
+    if (error instanceof Error && error.message.includes('401')) {
+      return 'Unauthorized (OAuth required or credentials invalid)';
+    }
+    
+    if (error instanceof Error && error.message.includes('404')) {
+      return 'Server endpoint not found';
+    }
+    
+    if (error instanceof Error && error.message.includes('CORS')) {
+      return 'CORS policy blocking request';
+    }
+    
+    return error instanceof Error ? error.message : 'Unknown error';
+  }
+
+  private generateUserFriendlyError(streamableError: any, sseError: any): string {
+    const isNetworkError = (err: any) => 
+      err instanceof TypeError && err.message.includes('Failed to fetch');
+    
+    const isCORSError = (err: any) =>
+      err instanceof Error && (
+        err.message.includes('CORS') || 
+        err.message.includes('No \'Access-Control-Allow-Origin\'')
+      );
+    
+    const is404Error = (err: any) =>
+      err instanceof Error && err.message.includes('404');
+    
+    const is401Error = (err: any) =>
+      err instanceof Error && err.message.includes('401');
+
+    // Check for common error patterns
+    if (isNetworkError(streamableError) || isNetworkError(sseError)) {
+      return `Cannot connect to MCP server at ${this.connection.url}. Common causes:
+• CORS is not properly configured on the server
+• Server is not running or unreachable
+• URL is incorrect
+• Network connectivity issues
+
+For browser-based connections, the MCP server must have CORS headers that allow requests from ${window.location.origin}.`;
+    }
+    
+    if (isCORSError(streamableError) || isCORSError(sseError)) {
+      return `CORS policy is blocking the connection to ${this.connection.url}. The MCP server needs to include these headers:
+• Access-Control-Allow-Origin: ${window.location.origin}
+• Access-Control-Allow-Methods: GET, POST, OPTIONS
+• Access-Control-Allow-Headers: Content-Type, Authorization`;
+    }
+    
+    if (is404Error(streamableError) && is404Error(sseError)) {
+      return `MCP server endpoints not found at ${this.connection.url}. Verify:
+• The server URL is correct
+• The server supports SSE (/sse) or SHTTP (/shttp) endpoints
+• The server is running and properly configured`;
+    }
+    
+    if (is401Error(streamableError) || is401Error(sseError)) {
+      return `Authorization required for ${this.connection.url}. This server may require OAuth authentication or API keys.`;
+    }
+    
+    // Fallback to original error message
+    const primaryError = streamableError || sseError;
+    return `Failed to connect to MCP server: ${primaryError instanceof Error ? primaryError.message : 'Unknown error'}`;
   }
 }
