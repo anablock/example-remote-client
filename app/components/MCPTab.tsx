@@ -11,26 +11,20 @@ export function MCPTab() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [newServerUrl, setNewServerUrl] = useState('');
+  const [addServerError, setAddServerError] = useState<string | null>(null);
   
   // Collapsible section states
   const [showSummary, setShowSummary] = useState(true);
   const [showAddServers, setShowAddServers] = useState(true);
   const [showServerList, setShowServerList] = useState(true);
 
-  const handleAddExampleServer = async () => {
-    try {
-      await addMcpServer({
-        name: 'Example Server',
-        url: 'https://example-server.modelcontextprotocol.io/sse',
-      });
-    } catch (error) {
-      console.error('Failed to add example server:', error);
-    }
-  };
+  // Removed the handleAddExampleServer function as the example server URL is not functional
 
   const handleAddCustomServer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newServerName.trim() || !newServerUrl.trim()) return;
+
+    setAddServerError(null);
 
     try {
       await addMcpServer({
@@ -42,7 +36,10 @@ export function MCPTab() {
       setNewServerName('');
       setNewServerUrl('');
       setShowAddForm(false);
+      setAddServerError(null);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to add server';
+      setAddServerError(errorMessage);
       console.error('Failed to add custom server:', error);
     }
   };
@@ -126,21 +123,29 @@ export function MCPTab() {
         </button>
         {showAddServers && (
           <div className="px-4 pb-4 space-y-3">
-            {/* Example Server Button */}
-            <button
-              onClick={handleAddExampleServer}
-              disabled={isLoading || connections.some(conn => conn.name === 'Example Server')}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-            >
-              {connections.some(conn => conn.name === 'Example Server') ? 'Example Server Added' : 'Add Example Server'}
-            </button>
+            {/* Instructions */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+              <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                Adding MCP Servers
+              </h4>
+              <p className="text-xs text-blue-800 dark:text-blue-200 mb-2">
+                Connect to MCP servers to access their tools and resources. Make sure the server supports browser connections (SSE or SHTTP transports).
+              </p>
+              <div className="text-xs text-blue-700 dark:text-blue-300">
+                <p className="mb-1"><strong>Example URLs:</strong></p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
+                  <li><code className="bg-blue-100 dark:bg-blue-800/50 px-1 rounded">https://your-server.com/sse</code> (SSE)</li>
+                  <li><code className="bg-blue-100 dark:bg-blue-800/50 px-1 rounded">https://your-server.com/shttp</code> (SHTTP)</li>
+                </ul>
+              </div>
+            </div>
 
             {/* Custom Server Form Toggle */}
             <button
               onClick={() => setShowAddForm(!showAddForm)}
-              className="w-full px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              className="w-full px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              {showAddForm ? 'Cancel' : 'Add Custom Server'}
+              {showAddForm ? 'Cancel' : 'Add MCP Server'}
             </button>
 
             {/* Custom Server Form */}
@@ -153,7 +158,10 @@ export function MCPTab() {
               <input
                 type="text"
                 value={newServerName}
-                onChange={(e) => setNewServerName(e.target.value)}
+                onChange={(e) => {
+                  setNewServerName(e.target.value);
+                  if (addServerError) setAddServerError(null);
+                }}
                 placeholder="My MCP Server"
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 required
@@ -167,12 +175,28 @@ export function MCPTab() {
               <input
                 type="url"
                 value={newServerUrl}
-                onChange={(e) => setNewServerUrl(e.target.value)}
+                onChange={(e) => {
+                  setNewServerUrl(e.target.value);
+                  if (addServerError) setAddServerError(null);
+                }}
                 placeholder="https://your-server.com/sse"
                 className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 required
               />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Must support SSE or SHTTP transport and have CORS enabled for browser access
+              </p>
             </div>
+            {addServerError && (
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs">
+                <div className="text-red-800 dark:text-red-200 font-medium mb-1">
+                  Failed to Add Server
+                </div>
+                <div className="text-red-700 dark:text-red-300 whitespace-pre-wrap">
+                  {addServerError}
+                </div>
+              </div>
+            )}
             <button
               type="submit"
               disabled={isLoading || !newServerName.trim() || !newServerUrl.trim()}
@@ -234,9 +258,14 @@ export function MCPTab() {
                       {connection.status}
                     </p>
                     {connection.error && (
-                      <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                        {connection.error}
-                      </p>
+                      <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs">
+                        <div className="text-red-800 dark:text-red-200 font-medium mb-1">
+                          Connection Failed
+                        </div>
+                        <div className="text-red-700 dark:text-red-300 whitespace-pre-wrap">
+                          {connection.error}
+                        </div>
+                      </div>
                     )}
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
                       {connection.url}

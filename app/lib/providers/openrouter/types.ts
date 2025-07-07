@@ -54,7 +54,7 @@ export interface OpenRouterChatRequest {
 
 export interface OpenRouterMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
-  content: string | OpenRouterContentBlock[];
+  content: string | OpenRouterContentBlock[] | null;
   tool_calls?: OpenRouterToolCall[];
   tool_call_id?: string;
 }
