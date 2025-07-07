@@ -318,6 +318,7 @@ export class MCPConnectionManager {
       this.connection.status = 'connected';
       this.connection.lastConnected = new Date();
       this.connection.connectionAttempts = 0;
+      this.connection.error = undefined; // Clear any previous errors
       this.notifyConnectionUpdate();
 
     } catch (error) {
@@ -512,29 +513,41 @@ export class MCPConnectionManager {
       throw new Error('Client not initialized');
     }
 
+    // Initialize with empty arrays to ensure connection succeeds even if some capabilities fail
+    this.connection.tools = [];
+    this.connection.resources = [];
+    this.connection.prompts = [];
+
+    // Discover tools (if supported)
     try {
-      // Discover tools
       this.connection.tools = await this.discoverTools();
-
-      // Discover resources (if supported)
-      try {
-        this.connection.resources = await this.discoverResources();
-      } catch (error) {
-        // Resources not supported by this server
-        this.connection.resources = [];
-      }
-
-      // Discover prompts (if supported)
-      try {
-        this.connection.prompts = await this.discoverPrompts();
-      } catch (error) {
-        // Prompts not supported by this server
-        this.connection.prompts = [];
-      }
-
+      console.log(`✅ Discovered ${this.connection.tools.length} tools from ${this.connection.name}`);
     } catch (error) {
-      throw this.createMCPError('protocol', 'Failed to initialize server capabilities', error);
+      console.warn(`⚠️ Tools discovery failed for ${this.connection.name}:`, error instanceof Error ? error.message : error);
+      this.connection.tools = [];
     }
+
+    // Discover resources (if supported)
+    try {
+      this.connection.resources = await this.discoverResources();
+      console.log(`✅ Discovered ${this.connection.resources.length} resources from ${this.connection.name}`);
+    } catch (error) {
+      console.warn(`⚠️ Resources discovery failed for ${this.connection.name}:`, error instanceof Error ? error.message : error);
+      this.connection.resources = [];
+    }
+
+    // Discover prompts (if supported)
+    try {
+      this.connection.prompts = await this.discoverPrompts();
+      console.log(`✅ Discovered ${this.connection.prompts.length} prompts from ${this.connection.name}`);
+    } catch (error) {
+      console.warn(`⚠️ Prompts discovery failed for ${this.connection.name}:`, error instanceof Error ? error.message : error);
+      this.connection.prompts = [];
+    }
+
+    // Log summary of successful connection
+    const totalCapabilities = this.connection.tools.length + this.connection.resources.length + this.connection.prompts.length;
+    console.log(`🎉 Successfully connected to ${this.connection.name} with ${totalCapabilities} total capabilities`);
   }
 
   async discoverTools(): Promise<Tool[]> {
@@ -557,6 +570,7 @@ export class MCPConnectionManager {
         },
       }));
     } catch (error) {
+      console.error(`❌ Tools discovery failed for ${this.connection.name}:`, error);
       throw this.createMCPError('protocol', 'Failed to discover tools', error);
     }
   }
@@ -576,6 +590,7 @@ export class MCPConnectionManager {
         mimeType: resource.mimeType,
       }));
     } catch (error) {
+      console.error(`❌ Resources discovery failed for ${this.connection.name}:`, error);
       throw this.createMCPError('protocol', 'Failed to discover resources', error);
     }
   }
@@ -594,6 +609,7 @@ export class MCPConnectionManager {
         arguments: prompt.arguments,
       }));
     } catch (error) {
+      console.error(`❌ Prompts discovery failed for ${this.connection.name}:`, error);
       throw this.createMCPError('protocol', 'Failed to discover prompts', error);
     }
   }
