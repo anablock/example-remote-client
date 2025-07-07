@@ -99,7 +99,15 @@ export function MCPProvider({ children }: MCPProviderProps) {
       try {
         const persistedData = localStorage.getItem('mcp_connections');
         if (persistedData) {
-          const persistedData_parsed = JSON.parse(persistedData);
+          let persistedData_parsed;
+          try {
+            persistedData_parsed = JSON.parse(persistedData);
+          } catch (parseError) {
+            console.warn('Failed to parse persisted MCP connections, clearing corrupt data:', parseError);
+            localStorage.removeItem('mcp_connections');
+            await addLocalServers();
+            return;
+          }
           
           // Handle both old format (array of configs) and new format (array of {id, config})
           const persistedConnections = Array.isArray(persistedData_parsed) && persistedData_parsed.length > 0
@@ -111,6 +119,12 @@ export function MCPProvider({ children }: MCPProviderProps) {
           // Restore connections and auto-reconnect
           for (const {id: connectionId, config} of persistedConnections) {
             try {
+              // Validate config before creating manager
+              if (!config || !config.name || !config.url) {
+                console.warn('Skipping invalid connection config:', config);
+                continue;
+              }
+
               const manager = new MCPConnectionManager(connectionId, config);
               
               // Set up callback for connection state updates
@@ -132,12 +146,21 @@ export function MCPProvider({ children }: MCPProviderProps) {
               // Add initial connection state
               setConnections(prev => [...prev, manager.getConnection()]);
               
-              // Auto-connect on restoration
+              // Auto-connect on restoration with timeout
               try {
-                await manager.connect();
+                const connectPromise = manager.connect();
+                const timeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error('Connection timeout')), 10000)
+                );
+                
+                await Promise.race([connectPromise, timeoutPromise]);
                 console.log(`Auto-reconnected to ${config.name}`);
               } catch (error) {
                 console.warn(`Failed to auto-reconnect to ${config.name}:`, error);
+                // Update connection state to reflect failure
+                setConnections(prev => prev.map(conn => 
+                  conn.id === connectionId ? manager.getConnection() : conn
+                ));
               }
             } catch (error) {
               console.warn(`Failed to restore connection to ${config.name}:`, error);
@@ -146,10 +169,20 @@ export function MCPProvider({ children }: MCPProviderProps) {
         }
       } catch (error) {
         console.error('Failed to load persisted MCP connections:', error);
+        // Clear potentially corrupt localStorage data
+        try {
+          localStorage.removeItem('mcp_connections');
+        } catch (clearError) {
+          console.warn('Failed to clear corrupt localStorage data:', clearError);
+        }
       }
       
       // After loading persisted connections, add local servers
-      await addLocalServers();
+      try {
+        await addLocalServers();
+      } catch (error) {
+        console.error('Failed to add local servers:', error);
+      }
     };
 
     const addLocalServers = async () => {

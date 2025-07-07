@@ -35,29 +35,68 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
     try {
       const persistedData = localStorage.getItem('conversations');
       if (persistedData) {
-        const persistedConversations: Conversation[] = JSON.parse(persistedData);
-        // Convert date strings back to Date objects
-        const restored = persistedConversations.map(conv => ({
-          ...conv,
-          createdAt: new Date(conv.createdAt),
-          updatedAt: new Date(conv.updatedAt),
-          messages: conv.messages.map(msg => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp),
-          })),
-        }));
+        let persistedConversations: Conversation[];
+        try {
+          persistedConversations = JSON.parse(persistedData);
+        } catch (parseError) {
+          console.warn('Failed to parse persisted conversations, clearing corrupt data:', parseError);
+          localStorage.removeItem('conversations');
+          return;
+        }
+        
+        // Validate and convert date strings back to Date objects
+        const restored = persistedConversations
+          .filter(conv => {
+            // Validate required fields
+            if (!conv || !conv.id || !conv.title || !Array.isArray(conv.messages)) {
+              console.warn('Skipping invalid conversation:', conv);
+              return false;
+            }
+            return true;
+          })
+          .map(conv => {
+            try {
+              return {
+                ...conv,
+                createdAt: new Date(conv.createdAt),
+                updatedAt: new Date(conv.updatedAt),
+                messages: conv.messages
+                  .filter(msg => msg && msg.id && msg.role && msg.content)
+                  .map(msg => ({
+                    ...msg,
+                    timestamp: new Date(msg.timestamp),
+                  })),
+              };
+            } catch (convError) {
+              console.warn('Skipping conversation with invalid date:', conv.id, convError);
+              return null;
+            }
+          })
+          .filter(conv => conv !== null) as Conversation[];
+        
         setConversations(restored);
         
         // Set active conversation to the most recent one
         if (restored.length > 0) {
-          const mostRecent = restored.reduce((latest, conv) => 
-            conv.updatedAt > latest.updatedAt ? conv : latest
-          );
-          setActiveConversationId(mostRecent.id);
+          try {
+            const mostRecent = restored.reduce((latest, conv) => 
+              conv.updatedAt > latest.updatedAt ? conv : latest
+            );
+            setActiveConversationId(mostRecent.id);
+          } catch (recentError) {
+            console.warn('Failed to find most recent conversation:', recentError);
+            setActiveConversationId(restored[0].id);
+          }
         }
       }
     } catch (error) {
       console.error('Failed to load persisted conversations:', error);
+      // Clear potentially corrupt data
+      try {
+        localStorage.removeItem('conversations');
+      } catch (clearError) {
+        console.warn('Failed to clear corrupt conversation data:', clearError);
+      }
     }
   }, []);
 
