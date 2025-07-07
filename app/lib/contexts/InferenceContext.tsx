@@ -147,22 +147,39 @@ export function InferenceProvider({ children }: InferenceProviderProps) {
     if (typeof window === 'undefined') return;
     
     const tryRestoreProvider = async () => {
-      // Try API provider first
-      const apiProvider = new OpenRouterApiProvider();
-      if (apiProvider.isAuthenticated) {
-        await restoreProviderWithModels(apiProvider);
-        return;
-      }
+      try {
+        // Try API provider first
+        const apiProvider = new OpenRouterApiProvider();
+        if (apiProvider.isAuthenticated) {
+          console.log('Restoring API provider...');
+          await restoreProviderWithModels(apiProvider);
+          return;
+        }
 
-      // Try OAuth provider
-      const oauthProvider = new OpenRouterOAuthProvider();
-      if (oauthProvider.isAuthenticated) {
-        await restoreProviderWithModels(oauthProvider);
-        return;
+        // Try OAuth provider
+        const oauthProvider = new OpenRouterOAuthProvider();
+        if (oauthProvider.isAuthenticated) {
+          console.log('Restoring OAuth provider...');
+          await restoreProviderWithModels(oauthProvider);
+          return;
+        }
+        
+        console.log('No authenticated provider found to restore');
+      } catch (error) {
+        console.warn('Failed to restore inference provider:', error);
+        // Clear any corrupt auth data that might be causing issues
+        try {
+          localStorage.removeItem('openrouter_api_key');
+          localStorage.removeItem('openrouter_oauth_tokens');
+          localStorage.removeItem('selected_model_id');
+        } catch (clearError) {
+          console.warn('Failed to clear corrupt auth data:', clearError);
+        }
+        setError('Failed to restore authentication. Please re-authenticate.');
       }
     };
 
-    tryRestoreProvider().catch(console.error);
+    tryRestoreProvider();
   }, [restoreProviderWithModels]);
 
   const generateResponse = useCallback(async (request: InferenceRequest): Promise<InferenceResponse> => {
